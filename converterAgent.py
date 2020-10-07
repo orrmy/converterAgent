@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import os, sys, shutil, re, subprocess, json, random, importlib
+import os, sys, shutil, re, subprocess, json, pickle, random, importlib
 import traceback
 from pushover import init, Client
 
@@ -8,6 +8,7 @@ import settings
 
 # Global Variables
 originalMetadata = None
+knownFiles		 = {}
 
 # Initializing Pushover Notifications
 init("arukijyuq87ry28t5kw33ja3c53ucp")
@@ -28,6 +29,12 @@ def getMetadata( filename ):
 	
 def doConvert( filename ):
 	global originalMetadata
+	#print ( "checking " + filename )
+	try:
+		if knownFiles[filename] == (os.path.getsize(filename), os.path.getmtime(filename)):
+			return False
+	except KeyError:
+		pass
 	originalMetadata = getMetadata(filename)
 	try:
 		codec = originalMetadata["streams"][0]["codec_name"]
@@ -36,11 +43,12 @@ def doConvert( filename ):
 	if codec in settings.codecsToConvert:
 		print( "\nConverting " + codec + " file " + filename )
 		return True
-	print ( '.', flush=True, end='' )
+	knownFiles[filename] = (os.path.getsize(filename), os.path.getmtime(filename))
 	return False
 	
 		
 def find_file(directory, pattern):
+	counter = 0
 	print( "\n" + directory ) #debug
 	for root, dirs, files in os.walk(directory):
 		for basename in files:
@@ -49,6 +57,9 @@ def find_file(directory, pattern):
 				filename = os.path.join(root, basename)
 				searchPattern = os.path.splitext( basename )[0]
 				versions = list(filter(lambda x: searchPattern in x, os.listdir(root)))
+				counter += 1
+				sys.stdout.write( "\rchecked " + str(counter) + " files...")
+				sys.stdout.flush()
 				if not len(versions) > 1:
 					if doConvert( filename ):
 						return filename
@@ -78,11 +89,14 @@ def interlaceDetect( filename ):
 
 def createThumbs( videofile, targetDir, ext="" ):
 	duration = float( originalMetadata['format']['duration'] )
-	sar = float(originalMetadata['streams'][0]['sample_aspect_ratio'].split(':')[0]) / \
-		  float(originalMetadata['streams'][0]['sample_aspect_ratio'].split(':')[1])
-	dar = float(originalMetadata['streams'][0]['display_aspect_ratio'].split(':')[0]) / \
-		  float(originalMetadata['streams'][0]['display_aspect_ratio'].split(':')[1])
-	par = dar/sar
+	try:
+		sar = float(originalMetadata['streams'][0]['coded_width']) / \
+			  float(originalMetadata['streams'][0]['coded_height'])
+		dar = float(originalMetadata['streams'][0]['width']) / \
+			  float(originalMetadata['streams'][0]['height'])
+		par = dar/sar
+	except:
+		par = 1
 	targetHeight = int( originalMetadata['streams'][0]['height'] )
 	targetWidth  = int( par * originalMetadata['streams'][0]['width'] )
 	for i in range(0,settings.numberOfThumbs):
@@ -96,6 +110,12 @@ def createThumbs( videofile, targetDir, ext="" ):
 
 #try:
 counter = 0
+
+try:
+	knownFiles = pickle.load(settings.agentName + ".db")
+except:
+	pass
+
 while True:
 	for lib in settings.inputDirectories:
 		filename = find_file(lib, settings.formatsToConvert )
@@ -137,14 +157,17 @@ while True:
 	#			sys.exit(1)
 		counter += 1
 		createThumbs(  newFilename, os.path.dirname( filename ), "-after" )
+		finalPath = os.path.join( os.path.dirname( filename ), os.path.basename( newFilename ) )
 		if settings.swapOriginals:
-			shutil.copyfile( newFilename, os.path.join( os.path.dirname( filename ), os.path.basename( newFilename ) ) )
+			shutil.copyfile( newFilename, finalPath )
 			os.remove( newFilename )
 			shutil.copyfile( tempFile, settings.doneOriginalsFolder + os.path.basename( tempFile ) )
 			os.remove( filename )
 			if tempFile != filename:
 				os.remove( tempFile )
+		knownFiles[ finalPath ] = ( os.path.getsize(finalPath), os.path.getmtime(finalPath) )
 		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(filename) + "\n(Duration check: old: " + originalDuration + " / new: " + newDuration + ")" )
+		pickle.dump( knownFiles, open( settings.agentName + ".db", "wb" ) )
 		importlib.reload( settings ) # this enables controlling the agent simply by changing the settings file. 
 		if counter >= settings.maxConversions:
 			settings.doRestart = False
