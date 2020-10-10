@@ -90,15 +90,12 @@ def interlaceDetect( filename ):
 def createThumbs( videofile, targetDir, ext="" ):
 	duration = float( originalMetadata['format']['duration'] )
 	try:
-		sar = float(originalMetadata['streams'][0]['coded_width']) / \
-			  float(originalMetadata['streams'][0]['coded_height'])
-		dar = float(originalMetadata['streams'][0]['width']) / \
-			  float(originalMetadata['streams'][0]['height'])
-		par = dar/sar
+		aspectRatio = 	float(originalMetadata['streams'][0]['display_aspect_ratio'].split(':')[0]) / \
+						float(originalMetadata['streams'][0]['display_aspect_ratio'].split(':')[1])
 	except:
-		par = 1
+		aspectRatio = 1.0
 	targetHeight = int( originalMetadata['streams'][0]['height'] )
-	targetWidth  = int( par * originalMetadata['streams'][0]['width'] )
+	targetWidth  = int( aspectRatio * originalMetadata['streams'][0]['height'] )
 	for i in range(0,settings.numberOfThumbs):
 		if settings.thumbmode == "random":
 			starttime = random.uniform( 0.0, duration )
