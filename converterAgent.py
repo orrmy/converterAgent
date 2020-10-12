@@ -102,7 +102,7 @@ def createThumbs( videofile, targetDir, ext="" ):
 		else:
 			starttime = (i+1) * ( duration / (settings.numberOfThumbs+1) ) 
 		ffmpegCommand = "ffmpeg -hide_banner -loglevel warning -ss " + str(starttime) + " -i '" + videofile + "' -vf thumbnail,scale=" + str(targetWidth) + "x" + str(targetHeight) + " -frames:v 1 '" + os.path.splitext(videofile)[0] + ext + " - " + str(i) + ".png'"
-		#print (ffmpegCommand)
+		print (ffmpegCommand)
 		os.system( ffmpegCommand )
 
 #try:
@@ -147,14 +147,17 @@ while True:
 		#print ffmpegCommand
 		os.system( ffmpegCommand )
 		newMetadata = getMetadata( newFilename )
-		newDuration = newMetadata['format']['duration']
-		originalDuration = originalMetadata['format']['duration']
-	#		if newDuration != originalDuration:
-	#			notify( '<font color="#ff0000">Duration check failed:</font>\nOriginal=' + originalDuration + ' | New File=' + newDuration + '\n<font color="#ff0000">Stopping.</font>' )
-	#			sys.exit(1)
+		newDuration = float(newMetadata['format']['duration'])
+		originalDuration = float(originalMetadata['format']['duration'])
+		if abs(newDuration - originalDuration) > 1.0:
+			notify( '<font color="#ff0000">Duration check failed:</font>\nOriginal=' + originalDuration + ' | New File=' + newDuration + '\n<font color="#ff0000">Stopping.</font>' )
+			sys.exit(1)
 		counter += 1
 		createThumbs(  newFilename, os.path.dirname( filename ), "-after" )
 		finalPath = os.path.join( os.path.dirname( filename ), os.path.basename( newFilename ) )
+		oldSize = os.path.getsize(filename) / 1048576.0
+		newSize = os.path.getsize(newFilename) / 1048576.0
+		savings = ( (oldSize - newSize) / oldSize) *100
 		if settings.swapOriginals:
 			shutil.copyfile( newFilename, finalPath )
 			os.remove( newFilename )
@@ -163,12 +166,14 @@ while True:
 			if tempFile != filename:
 				os.remove( tempFile )
 		knownFiles[ finalPath ] = ( os.path.getsize(finalPath), os.path.getmtime(finalPath) )
-		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(filename) + "\n(Duration check: old: " + originalDuration + " / new: " + newDuration + ")" )
+		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(filename) \
+				+ "\n(Duration check passed)" \
+				+ "\nold file size " + str(int(oldSize)) + " MiB, new " + str(int(newSize)) + " MiB (saved " + '{:.1f}'.format(savings) + "%)" )
 		pickle.dump( knownFiles, open( settings.agentName + ".db", "wb" ) )
 		importlib.reload( settings ) # this enables controlling the agent simply by changing the settings file. 
 		if counter >= settings.maxConversions:
 			settings.doRestart = False
-			notify( '<font color="#ff0000">Stopping.</font> after ' + str(settings.maxConversions) + ' planned conversions.' )
+			notify( '<font color="#ff0000">Stopping</font> after ' + str(settings.maxConversions) + ' planned conversions.' )
 		if settings.doRestart == False:
 			break
 
