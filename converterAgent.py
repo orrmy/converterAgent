@@ -65,6 +65,9 @@ def find_file(directory, pattern):
 						return filename
 	return None
 
+def getSortedLibs(unsortedList):
+	return sorted(unsortedList, key = lambda e: shutil.disk_usage(e)[2])
+
 def interlaceDetect( filename ):
 	duration = float( originalMetadata['format']['duration'] )
 	process = subprocess.Popen( ["ffmpeg", "-filter:v", "idet", "-frames:v",\
@@ -114,7 +117,7 @@ except:
 	pass
 
 while True:
-	for lib in settings.inputDirectories:
+	for lib in getSortedLibs(settings.inputDirectories):
 		filename = find_file(lib, settings.formatsToConvert )
 		if filename:
 			break
