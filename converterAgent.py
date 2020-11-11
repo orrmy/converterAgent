@@ -9,6 +9,7 @@ import settings
 # Global Variables
 originalMetadata = None
 knownFiles		 = {}
+doneFiles		 = []
 
 # Initializing Pushover Notifications
 init("arukijyuq87ry28t5kw33ja3c53ucp")
@@ -29,9 +30,20 @@ def getMetadata( filename ):
 	
 def doConvert( filename ):
 	global originalMetadata
-	#print ( "checking " + filename )
+	print ( "checking " + filename )
+	if filename in doneFiles:
+		return False
 	try:
-		if knownFiles[filename] == (os.path.getsize(filename), os.path.getmtime(filename)):
+		thisCodec = knownFiles[filename]['codec']
+		thisWidth = knownFiles[filename]['width']
+		if thisCodec not in settings.codecsToConvert:
+			print ("-> Wrong codec: " + thisCodec + " (Data cached)")
+			return False
+		if not ( thisWidth >= settings.codecsToConvert[thisCodec][0] and \
+				 thisWidth <= settings.codecsToConvert[thisCodec][1] and \
+				 thisHeight >= settings.codecsToConvert[thisCodec][0] and \
+				 thisHeight <= settings.codecsToConvert[thisCodec][1] ):
+			print ("-> Wrong size: " + thisHeight + " x " + thisHeight + " (Data cached)")
 			return False
 	except KeyError:
 		pass
@@ -40,10 +52,25 @@ def doConvert( filename ):
 		codec = originalMetadata["streams"][0]["codec_name"]
 	except (KeyError, IndexError):
 		codec = "unkown"
-	if codec in settings.codecsToConvert:
-		print( "\nConverting " + codec + " file " + filename )
-		return True
-	knownFiles[filename] = (os.path.getsize(filename), os.path.getmtime(filename))
+	try:
+		width  = float(originalMetadata['streams'][0]['width'])
+		height = float(originalMetadata['streams'][0]['height'])
+	except:
+		width  = 0
+		height = 0
+	if  codec in settings.codecsToConvert and \
+		width > settings.codecsToConvert[codec]['width'][0] and \
+		width <= settings.codecsToConvert[codec]['width'][1] and \
+		height > settings.codecsToConvert[codec]['height'][0] and \
+		height <= settings.codecsToConvert[codec]['height'][1]:
+			print( "\nConverting " + codec + " file " + filename )
+			return True
+	knownFiles[filename] = {'size': os.path.getsize(filename), \
+							'modified': os.path.getmtime(filename), \
+							'codec': codec, \
+							'width': width, \
+							'height': height }
+	print (knownFiles[filename])
 	return False
 	
 		
@@ -104,7 +131,7 @@ def createThumbs( videofile, targetDir, ext="" ):
 			starttime = random.uniform( 0.0, duration )
 		else:
 			starttime = (i+1) * ( duration / (settings.numberOfThumbs+1) ) 
-		ffmpegCommand = "ffmpeg -hide_banner -loglevel warning -ss " + str(starttime) + " -i '" + videofile + "' -vf thumbnail,scale=" + str(targetWidth) + "x" + str(targetHeight) + " -frames:v 1 '" + os.path.splitext(videofile)[0] + ext + " - " + str(i) + ".png'"
+		ffmpegCommand = "ffmpeg -hide_banner -loglevel warning -ss " + str(starttime) + " -y -i '" + videofile + "' -vf thumbnail,scale=" + str(targetWidth) + "x" + str(targetHeight) + " -frames:v 1 '" + os.path.splitext(videofile)[0] + ext + " - " + str(i) + ".png'"
 		print (ffmpegCommand)
 		os.system( ffmpegCommand )
 
@@ -113,6 +140,11 @@ counter = 0
 
 try:
 	knownFiles = pickle.load(settings.agentName + ".db")
+except:
+	pass
+	
+try:
+	doneFiles = pickle.load(settings.agentName + "-done.db")
 except:
 	pass
 
@@ -145,15 +177,15 @@ while True:
 		
 		notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(filename) + deintNotification )
 		newFilename = os.path.splitext( tempFile )[0] + " - hevc.mkv"
-		ffmpegCommand = 'nice -n10 ffmpeg -hide_banner -loglevel warning -stats -i "' + filename + '" -map 0 ' + deint + '-c:v hevc -c:a copy -c:s copy -crf 23 -preset slow -max_muxing_queue_size 1024 "' + newFilename + '"'
-	# HARDWARE ENCODING # ffmpegCommand = 'nice -n10 ffmpeg -i "' + filename + '" -map 0 -vf yadif -vcodec h264_videotoolbox -profile:v high -b:v 1.7M -c:a copy "' + newFilename + '"'
+		ffmpegCommand = 'nice -n10 ffmpeg -hide_banner -loglevel warning -stats -y -i "' + filename + '" -map 0 ' + deint + '-c:v hevc -c:a copy -c:s copy -crf 23 -preset slow -max_muxing_queue_size 1024 "' + newFilename + '"'
+	# HARDWARE ENCODING # ffmpegCommand = 'nice -n10 ffmpeg -y -i "' + filename + '" -map 0 -vf yadif -vcodec h264_videotoolbox -profile:v high -b:v 1.7M -c:a copy "' + newFilename + '"'
 		#print ffmpegCommand
 		os.system( ffmpegCommand )
 		newMetadata = getMetadata( newFilename )
 		newDuration = float(newMetadata['format']['duration'])
 		originalDuration = float(originalMetadata['format']['duration'])
 		if abs(newDuration - originalDuration) > 1.0:
-			notify( '<font color="#ff0000">Duration check failed:</font>\nOriginal=' + originalDuration + ' | New File=' + newDuration + '\n<font color="#ff0000">Stopping.</font>' )
+			notify( '<font color="#ff0000">Duration check failed:</font>\nOriginal=' + str(originalDuration) + ' | New File=' + str(newDuration) + '\n<font color="#ff0000">Stopping.</font>' )
 			sys.exit(1)
 		counter += 1
 		createThumbs(  newFilename, os.path.dirname( filename ), "-after" )
@@ -168,11 +200,23 @@ while True:
 			os.remove( filename )
 			if tempFile != filename:
 				os.remove( tempFile )
-		knownFiles[ finalPath ] = ( os.path.getsize(finalPath), os.path.getmtime(finalPath) )
+		try:
+			width  = float(originalMetadata['streams'][0]['width'].split(':')[0])
+			height = float(originalMetadata['streams'][0]['height'].split(':')[1])
+		except:
+			width  = 0
+			height = 0
+			knownFiles[ finalPath ] = {	'size': os.path.getsize(finalPath),
+										'modified': os.path.getmtime(finalPath),
+										'codec': 'hevc',
+										'width': width,
+										'height': height }
+		doneFiles.append( finalPath )
 		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(filename) \
 				+ "\n(Duration check passed)" \
 				+ "\nold file size " + str(int(oldSize)) + " MiB, new " + str(int(newSize)) + " MiB (saved " + '{:.1f}'.format(savings) + "%)" )
 		pickle.dump( knownFiles, open( settings.agentName + ".db", "wb" ) )
+		pickle.dump( doneFiles, open( settings.agentName + "-done.db", "wb" ) )
 		importlib.reload( settings ) # this enables controlling the agent simply by changing the settings file. 
 		if counter >= settings.maxConversions:
 			settings.doRestart = False
