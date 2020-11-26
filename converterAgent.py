@@ -5,6 +5,7 @@ import traceback
 from pushover import init, Client
 
 import settings
+from CAgenerateCommand import generateCommand
 
 # Global Variables
 originalMetadata = None
@@ -16,7 +17,10 @@ init("arukijyuq87ry28t5kw33ja3c53ucp")
 
 def notify( message ):
 	if settings.doNotify:
-		Client( settings.pushoverUser ).send_message( "<b>" + settings.agentName + "</b>:" + message, html=1 )
+		try:
+			Client( settings.pushoverUser ).send_message( "<b>" + settings.agentName + "</b>:" + message, html=1 )
+		except:
+			print("Pushover notification failed.")
 	else:
 		#print( message )
 		pass
@@ -177,9 +181,9 @@ while True:
 		
 		notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(filename) + deintNotification )
 		newFilename = os.path.splitext( tempFile )[0] + " - hevc.mkv"
-		ffmpegCommand = 'nice -n10 ffmpeg -hide_banner -loglevel warning -stats -y -i "' + filename + '" -map 0 ' + deint + '-c:v hevc -c:a copy -c:s copy -crf 23 -preset slow -max_muxing_queue_size 1024 "' + newFilename + '"'
-	# HARDWARE ENCODING # ffmpegCommand = 'nice -n10 ffmpeg -y -i "' + filename + '" -map 0 -vf yadif -vcodec h264_videotoolbox -profile:v high -b:v 1.7M -c:a copy "' + newFilename + '"'
-		#print ffmpegCommand
+
+		ffmpegCommand = generateCommand(filename, deint, newFilename)
+
 		os.system( ffmpegCommand )
 		newMetadata = getMetadata( newFilename )
 		newDuration = float(newMetadata['format']['duration'])
