@@ -1,10 +1,19 @@
 #!/usr/bin/python
 
-import os, sys, shutil, re, subprocess, json, pickle, random, importlib
+# converterAgent V0.7
+# - now uses SQLite Database managed in separate script to check for files to convert
+# - suffix for final converted file can now be chosen (or turned off) in settings file
+# - setting ignorePathsWith now accepts a tuple of strings
+# - Fix: Filenames should be correctly escaped now
+# - Will now simply overwrite old temp files (which are most likely results of aborted conversions) instead of asking and thus stopping the whole   
+
+import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, importlib
 import traceback
+from shlex import quote
 from pushover import init, Client
 
 import settings
+from CAmetadata import getMetadata
 from CAgenerateCommand import generateCommand
 
 # Global Variables
@@ -14,6 +23,10 @@ doneFiles		 = []
 
 # Initializing Pushover Notifications
 init("arukijyuq87ry28t5kw33ja3c53ucp")
+
+# Database Connection
+db = sqlite3.connect( settings.libraryName + '.sqlite3' )
+cursor = db.cursor()
 
 def notify( message ):
 	if settings.doNotify:
@@ -25,14 +38,21 @@ def notify( message ):
 		#print( message )
 		pass
 
-def getMetadata( filename ):
-	process = subprocess.Popen( ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format",\
-									"-show_streams", "-select_streams", "v", filename], stdout=subprocess.PIPE )
-	theJson = process.communicate()[0]
-	#print (json.loads( theJson ))
-	return json.loads( theJson )
-	
-def doConvert( filename ):
+def getFileToConvert():
+	while True:
+		cursor.execute("SELECT Path, Modified, Size FROM files WHERE (Codec='mpeg2video' OR Container='.ts') AND Cut=1 AND Error=0 ORDER BY RANDOM()")
+		files = cursor.fetchall()
+		file = files[0]
+		print ("Found " + str(len(files)) + " to convert." )
+		try:
+			if any(string in file[0] for string in settings.ignorePathsWith):
+				break
+			if file[1] == os.path.getmtime(file[0]) and file[2] == os.path.getsize(file[0]):
+				return file[0]
+		except FileNotFoundError:
+			pass
+
+def doConvert( filename ): # CAN PROBABLY BE REMOVED
 	global originalMetadata
 	print ( "checking " + filename )
 	if filename in doneFiles:
@@ -78,7 +98,7 @@ def doConvert( filename ):
 	return False
 	
 		
-def find_file(directory, pattern):
+def find_file(directory, pattern): # CAN PROBABLY BE REMOVED
 	counter = 0
 	print( "\n" + directory ) #debug
 	for root, dirs, files in os.walk(directory):
@@ -135,7 +155,7 @@ def createThumbs( videofile, targetDir, ext="" ):
 			starttime = random.uniform( 0.0, duration )
 		else:
 			starttime = (i+1) * ( duration / (settings.numberOfThumbs+1) ) 
-		ffmpegCommand = "ffmpeg -hide_banner -loglevel warning -ss " + str(starttime) + " -y -i '" + videofile + "' -vf thumbnail,scale=" + str(targetWidth) + "x" + str(targetHeight) + " -frames:v 1 '" + os.path.splitext(videofile)[0] + ext + " - " + str(i) + ".png'"
+		ffmpegCommand = "ffmpeg -hide_banner -loglevel warning -ss " + str(starttime) + " -y -i " + quote(videofile) + " -vf thumbnail,scale=" + str(targetWidth) + "x" + str(targetHeight) + " -frames:v 1 " + quote(os.path.splitext(videofile)[0] + ext + " - " + str(i) + ".png")
 		print (ffmpegCommand)
 		os.system( ffmpegCommand )
 
@@ -153,10 +173,9 @@ except:
 	pass
 
 while True:
-	for lib in getSortedLibs(settings.inputDirectories):
-		filename = find_file(lib, settings.formatsToConvert )
-		if filename:
-			break
+	filename = getFileToConvert()
+	originalMetadata = getMetadata(filename)
+
 	if not filename:
 		notify( '<b>karthago:</b> No more files to convert. <font color="#ff0000">Stopping.</font>' )
 		sys.exit(0)
@@ -180,42 +199,45 @@ while True:
 	#	notify( 'Copying of file ' + os.path.basename(filename) + ' failed. <font color="#ff0000">Stopping.</font>' )
 		
 		notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(filename) + deintNotification )
-		newFilename = os.path.splitext( tempFile )[0] + " - hevc.mkv"
+		tempNameForConvertedFile = os.path.splitext( tempFile )[0] + " - conv.mkv"
+		newPath = os.path.splitext( filename )[0] + settings.newFileSuffix + ".mkv"
 
-		ffmpegCommand = generateCommand(filename, deint, newFilename)
-
+		ffmpegCommand = generateCommand(filename, deint, tempNameForConvertedFile)
+		print( ffmpegCommand )
 		os.system( ffmpegCommand )
-		newMetadata = getMetadata( newFilename )
+		newMetadata = getMetadata( tempNameForConvertedFile )
 		newDuration = float(newMetadata['format']['duration'])
 		originalDuration = float(originalMetadata['format']['duration'])
 		if abs(newDuration - originalDuration) > 1.0:
 			notify( '<font color="#ff0000">Duration check failed:</font>\nOriginal=' + str(originalDuration) + ' | New File=' + str(newDuration) + '\n<font color="#ff0000">Stopping.</font>' )
 			sys.exit(1)
 		counter += 1
-		createThumbs(  newFilename, os.path.dirname( filename ), "-after" )
-		finalPath = os.path.join( os.path.dirname( filename ), os.path.basename( newFilename ) )
+		createThumbs(  tempNameForConvertedFile, os.path.dirname( filename ), "-after" )
+		# finalPath = os.path.join( os.path.dirname( filename ), os.path.basename( newPath ) )
 		oldSize = os.path.getsize(filename) / 1048576.0
-		newSize = os.path.getsize(newFilename) / 1048576.0
+		newSize = os.path.getsize(tempNameForConvertedFile) / 1048576.0
 		savings = ( (oldSize - newSize) / oldSize) *100
 		if settings.swapOriginals:
-			shutil.copyfile( newFilename, finalPath )
-			os.remove( newFilename )
+			shutil.copyfile( tempNameForConvertedFile, newPath )
+			os.remove( tempNameForConvertedFile )
 			shutil.copyfile( tempFile, settings.doneOriginalsFolder + os.path.basename( tempFile ) )
-			os.remove( filename )
+			if newPath != filename:
+				os.remove( filename )
 			if tempFile != filename:
 				os.remove( tempFile )
-		try:
-			width  = float(originalMetadata['streams'][0]['width'].split(':')[0])
-			height = float(originalMetadata['streams'][0]['height'].split(':')[1])
-		except:
-			width  = 0
-			height = 0
-			knownFiles[ finalPath ] = {	'size': os.path.getsize(finalPath),
-										'modified': os.path.getmtime(finalPath),
-										'codec': 'hevc',
-										'width': width,
-										'height': height }
-		doneFiles.append( finalPath )
+		# TODO: Update Database after converting a file
+		# try:
+		# 	width  = float(originalMetadata['streams'][0]['width'].split(':')[0])
+		# 	height = float(originalMetadata['streams'][0]['height'].split(':')[1])
+		# except:
+		# 	width  = 0
+		# 	height = 0
+		# 	knownFiles[ finalPath ] = {	'size': os.path.getsize(finalPath),
+		# 								'modified': os.path.getmtime(finalPath),
+		# 								'codec': 'hevc',
+		# 								'width': width,
+		# 								'height': height }
+		# doneFiles.append( finalPath )
 		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(filename) \
 				+ "\n(Duration check passed)" \
 				+ "\nold file size " + str(int(oldSize)) + " MiB, new " + str(int(newSize)) + " MiB (saved " + '{:.1f}'.format(savings) + "%)" )
