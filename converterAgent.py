@@ -1,11 +1,10 @@
 #!/usr/bin/python
 
-# converterAgent V0.8
-# - Settings are now defined in a new way via a configparser .ini file
-# - traceback when aborting after errors should work
+# converterAgent V0.8.1
+# - Fix: pushover User from config wasn't used
 
-import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser, traceback
-import traceback
+import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
+import traceback, logging
 from shlex import quote
 from pushover import init, Client
 
@@ -23,7 +22,7 @@ settings = allsettings["GLOBAL SETTINGS"]
 conversion = allsettings["DEFAULT"]["conversion"]
 
 # Initializing Pushover Notifications
-init("arukijyuq87ry28t5kw33ja3c53ucp")
+init(settings['pushover user'])
 
 # Database Connection
 db = sqlite3.connect( settings["Library Name"] + '.sqlite3' )
