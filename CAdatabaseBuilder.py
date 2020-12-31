@@ -1,9 +1,12 @@
 #!/usr/bin/python
 
-import os, sqlite3, json, time
+import os, sqlite3, json, time, configparser
 
-import settings
 import CAmetadata
+
+allsettings = configparser.ConfigParser( allow_no_value=True )
+allsettings.read("config.ini")
+settings = allsettings["GLOBAL SETTINGS"]
 
 countTotal		= 0
 countNew		= 0
@@ -28,7 +31,7 @@ filesTableInitSQL = """CREATE TABLE IF NOT EXISTS "files" (
 	"Error"		INTEGER
 )"""
 
-uncutPaths = ("/mnt/Augurinus/PlexDVRSerien", "/mnt/Grumentum/DVR Filme")
+uncutPaths = settings['postprocessing paths'].split('\n')git
 
 def fileInsert( Path=None, Filename="", Container="", Codec="", Width=0, \
 				Height=0, Duration=0, Size=0, Found=0.0, Modified=0.0, Cut=0, \
@@ -50,7 +53,7 @@ def fileInsert( Path=None, Filename="", Container="", Codec="", Width=0, \
 		print("changed: " + Path)
 		countChanged += 1
 		cursor.execute("UPDATE files SET Codec=?, \
-						Width=?, Height=?, Duration=?, Size=?, Modified=? \
+						Width=?, Height=?, Duration=?, Size=?, Modified=?, Missing=0 \
 						WHERE Path=?", \
 						(Codec, Width, Height, Duration, Size, Modified, Path) )
 	db.commit()
@@ -64,9 +67,9 @@ def safeMetadata( metadata, parameters ):
 	return result
 
 def fileInDB(path):
-	cursor.execute("SELECT Size, Modified FROM files WHERE Path=?", (path,))
+	cursor.execute("SELECT Size, Modified, Missing FROM files WHERE Path=?", (path,))
 	DBFileData = cursor.fetchone()
-	if DBFileData == (os.path.getsize(path), os.path.getmtime(path)):
+	if DBFileData == (os.path.getsize(path), os.path.getmtime(path), 0):
 		return True
 	return False
 
@@ -80,7 +83,7 @@ def findFiles(directory, pattern):
 			countTotal += 1
 			#print (path)
 			if basename.endswith(pattern) \
-					and not any(string in path for string in settings.ignorePathsWith) \
+					and not any(string in path for string in settings["Ignore Paths"].split('\n')) \
 					and not fileInDB(path):
 				metadata = CAmetadata.getMetadata(path)
 				if path.startswith(uncutPaths):
@@ -119,13 +122,13 @@ def findMissing():
 				countMissing += 1
 	db.commit()
 
-db = sqlite3.connect( settings.agentName + '.sqlite3' )
+db = sqlite3.connect( settings['Library Name'] + '.sqlite3' )
 cursor = db.cursor()
 cursor.execute( filesTableInitSQL )
 db.commit()
 
-for lib in settings.inputDirectories:
-	findFiles(lib, settings.formatsToConvert )
+for lib in settings['Input Paths'].split('\n'):
+	findFiles(lib, tuple(settings['Container Formats'].split('\n')) )
 	findMissing()
 
 print ( str(countTotal) + " files total, " + str(countNew) + " new, " + str(countChanged) + " changed, " + str(countMissing) + " missing." )
