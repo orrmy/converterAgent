@@ -1,7 +1,9 @@
 #!/usr/bin/python
 
-# converterAgent V0.8.1
-# - Fix: pushover User from config wasn't used
+# converterAgent V0.8.2
+# - added options 'Database Base Path' and 'Local Base Path' to enable using agents on
+#	different machines with different mountpoints with the same database
+# - FIX: sends a notification again when stopping because all files are converted
 
 import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
 import traceback, logging
@@ -25,8 +27,20 @@ conversion = allsettings["DEFAULT"]["conversion"]
 init(settings['pushover user'])
 
 # Database Connection
-db = sqlite3.connect( settings["Library Name"] + '.sqlite3' )
+db = sqlite3.connect( settings["Library Name"] + '.sqlite' )
 cursor = db.cursor()
+
+def localPath( path ):
+	if path.startswith( settings['database base path'] ):
+		return path.replace( settings['database base Path'], settings['local base path'], 1 )
+	else:
+		return path
+		
+def dbPath( path ):
+	if path.startswith( settings['local base path'] ):
+		return path.replace( settings['local base path'], settings['database base path'], 1 )
+	else:
+		return path
 
 def setErrorByPath( path, value ):
     cursor.execute("UPDATE files Set Error=? WHERE Path=?", (value, path))
@@ -34,10 +48,10 @@ def setErrorByPath( path, value ):
 
 def notify( message ):
 	if settings["Notifications"] == "yes":
-		try:
-			Client( settings["pushover User"] ).send_message( "<b>" + settings["Agent Name"] + "</b>:" + message, html=1 )
-		except:
-			print("Pushover notification failed.")
+		#try:
+		Client( settings["pushover token"] ).send_message( "<b>" + settings["Agent Name"] + "</b>:" + message, html=1 )
+		#except:
+		#	print("Pushover notification failed.")
 	else:
 		#print( message )
 		pass
@@ -74,26 +88,15 @@ def getFileToConvert():
 			result = cursor.fetchall()
 			if len( result ) != 0:
 				for file in result:
-					if file[3] == os.path.getmtime(file[0]) and file[4] == os.path.getsize(file[0]):
-						print (file[0])
+					localFile = localPath( file[0] )
+					if file[3] == os.path.getmtime(localFile) and file[4] == os.path.getsize(localFile):
+						print (localFile)
 						print ("Settings: " + conversion)
 						conversion = section["conversion"]
 						return file[0]
 	#print( allsettings[section] )
 	#print( result[0] )
-	sys.exit()
-	# while True:
-	# 	cursor.execute("SELECT Path, Modified, Size FROM files WHERE (Codec='mpeg2video' OR Container='.ts') AND Cut=1 AND Error=0 ORDER BY RANDOM()")
-	# 	files = cursor.fetchall()
-	# 	file = files[0]
-	# 	print ("Found " + str(len(files)) + " to convert." )
-	# 	try:
-	# 		# if any(string in file[0] for string in settings.ignorePathsWith):
-	# 		# 	break
-	# 		if file[1] == os.path.getmtime(file[0]) and file[2] == os.path.getsize(file[0]):
-	# 			return file[0]
-	# 	except FileNotFoundError:
-	# 		pass
+	return
 	
 def generateCommand(filename, deint, newFilename):
 	global conversion
@@ -109,8 +112,8 @@ def generateCommand(filename, deint, newFilename):
 			convSettings['ffmpeg output options'] + " " + \
 			quote(newFilename)
 
-def getSortedLibs(unsortedList):
-	return sorted(unsortedList, key = lambda e: shutil.disk_usage(e)[2])
+# def getSortedLibs(unsortedList): #not needed right now, implement again?
+# 	return sorted(unsortedList, key = lambda e: shutil.disk_usage(e)[2])
 
 def interlaceDetect( filename ):
 	duration = float( originalMetadata['format']['duration'] )
@@ -156,21 +159,23 @@ def createThumbs( videofile, targetDir, ext="" ):
 counter = 0
 
 while True:
-	filename = getFileToConvert()
-	originalMetadata = getMetadata(filename)
+	dbFile = getFileToConvert()
+	setErrorByPath( dbFile, 1 )
+	localFile = localPath( dbFile )
+	originalMetadata = getMetadata( localFile )
 
-	if not filename:
+	if not dbFile:
 		notify( '<b>karthago:</b> No more files to convert. <font color="#ff0000">Stopping.</font>' )
 		sys.exit(0)
 
 	try:
 		if settings["Temp Dir"]:
-			shutil.copyfile(filename, settings["Temp Dir"] + os.path.basename(filename))
-			tempFile = settings["Temp Dir"] + os.path.basename(filename)
+			shutil.copyfile(localFile, settings["Temp Dir"] + os.path.basename(localFile))
+			tempFile = settings["Temp Dir"] + os.path.basename(localFile)
 		else:
-			tempFile = filename
+			tempFile = localFile
 			
-		createThumbs( tempFile, os.path.dirname( filename ), "-before" )
+		createThumbs( tempFile, os.path.dirname( localFile ), "-before" )
 			
 		if interlaceDetect( tempFile ):
 			deint = "yes"
@@ -179,32 +184,33 @@ while True:
 			deint = ""
 			deintNotification = ""
 		
-		notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(filename) + deintNotification )
+		notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(localFile) + deintNotification )
 		tempNameForConvertedFile = os.path.splitext( tempFile )[0] + " - conv.mkv"
-		newPath = os.path.splitext( filename )[0] + settings["Suffix for new Files"] + ".mkv"
+		newPath = os.path.splitext( localFile )[0] + settings["Suffix for new Files"] + ".mkv"
 
-		ffmpegCommand = generateCommand(filename, deint, tempNameForConvertedFile)
+		ffmpegCommand = generateCommand(localFile, deint, tempNameForConvertedFile)
 		print( ffmpegCommand )
 		os.system( ffmpegCommand )
+		
 		newMetadata = getMetadata( tempNameForConvertedFile )
 		newDuration = float(newMetadata['format']['duration'])
 		originalDuration = float(originalMetadata['format']['duration'])
 		if abs(newDuration - originalDuration) > 1.0:
 			notify( '<font color="#ff0000">Duration check failed:</font>\nOriginal=' + str(originalDuration) + ' | New File=' + str(newDuration) + '\n<font color="#ff0000">Stopping.</font>' )
-			sys.exit(1)
+			sys.exit()
 
-		createThumbs(  tempNameForConvertedFile, os.path.dirname( filename ), "-after" )
+		createThumbs(  tempNameForConvertedFile, os.path.dirname( localFile ), "-after" )
 		# finalPath = os.path.join( os.path.dirname( filename ), os.path.basename( newPath ) )
-		oldSize = os.path.getsize(filename) / 1048576.0
+		oldSize = os.path.getsize(localFile) / 1048576.0
 		newSize = os.path.getsize(tempNameForConvertedFile) / 1048576.0
 		savings = ( (oldSize - newSize) / oldSize) *100
 		if settings["Swap Originals"] == "yes":
 			shutil.copyfile( tempNameForConvertedFile, newPath )
 			os.remove( tempNameForConvertedFile )
 			shutil.copyfile( tempFile, settings["Done Originals Dir"] + os.path.basename( tempFile ) )
-			if newPath != filename:
-				os.remove( filename )
-			if tempFile != filename:
+			if newPath != localFile:
+				os.remove( localFile )
+			if tempFile != localFile:
 				os.remove( tempFile )
 		# TODO: Update Database after converting a file
 		# try:
@@ -219,7 +225,10 @@ while True:
 		# 								'width': width,
 		# 								'height': height }
 		# doneFiles.append( finalPath )
-		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(filename) \
+		
+		setErrorByPath( dbFile, 0 )
+
+		notify( '<font color="#ccaa00">Conversion done:</font> ' + os.path.basename(dbFile) \
 				+ "\n(Duration check passed)" \
 				+ "\nold file size " + str(int(oldSize)) + " MiB, new " + str(int(newSize)) + " MiB (saved " + '{:.1f}'.format(savings) + "%)" )
 		allsettings.read("config.ini")		# this enables controlling the
@@ -232,7 +241,7 @@ while True:
 			break
 
 	except:
-		setErrorByPath(filename, 1)
+		setErrorByPath(dbFile, 1)
 		notify( '<b>karthago:</b> <font color="#ff0000">Unexpected error:</font> ' + str(sys.exc_info()) )
 		traceback.print_exception(*exc_info)
 		sys.exit(1)
