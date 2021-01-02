@@ -1,6 +1,7 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
-import os, sqlite3, json, time, configparser
+import os, sqlite3, json, time
+import configparser
 
 import CAmetadata
 
@@ -31,7 +32,7 @@ filesTableInitSQL = """CREATE TABLE IF NOT EXISTS "files" (
 	"Error"		INTEGER
 )"""
 
-uncutPaths = settings['postprocessing paths'].split('\n')git
+uncutPaths = settings['postprocessing paths'].split('\n')
 
 def fileInsert( Path=None, Filename="", Container="", Codec="", Width=0, \
 				Height=0, Duration=0, Size=0, Found=0.0, Modified=0.0, Cut=0, \
@@ -86,7 +87,7 @@ def findFiles(directory, pattern):
 					and not any(string in path for string in settings["Ignore Paths"].split('\n')) \
 					and not fileInDB(path):
 				metadata = CAmetadata.getMetadata(path)
-				if path.startswith(uncutPaths):
+				if path.startswith(tuple(uncutPaths)):
 					cut = 0
 				else:
 					cut = 1

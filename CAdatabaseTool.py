@@ -1,7 +1,6 @@
 #! /usr/bin/python3
 
 import os, sys, sqlite3, argparse, configparser
-import settings
 
 allsettings = configparser.ConfigParser( allow_no_value=True )
 allsettings.read("config.ini")

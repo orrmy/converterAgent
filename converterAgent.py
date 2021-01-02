@@ -1,9 +1,8 @@
 #!/usr/bin/python
 
-# converterAgent V0.8.2
-# - added options 'Database Base Path' and 'Local Base Path' to enable using agents on
-#	different machines with different mountpoints with the same database
-# - FIX: sends a notification again when stopping because all files are converted
+# converterAgent V0.8.3
+# - FIX: CAdatabaseBuilder didn't work, does now
+# - createThumbs() can now use width and height if display_aspect_ratio is unavailable
 
 import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
 import traceback, logging
@@ -24,10 +23,10 @@ settings = allsettings["GLOBAL SETTINGS"]
 conversion = allsettings["DEFAULT"]["conversion"]
 
 # Initializing Pushover Notifications
-init(settings['pushover user'])
+init(settings['pushover token'])
 
 # Database Connection
-db = sqlite3.connect( settings["Library Name"] + '.sqlite' )
+db = sqlite3.connect( settings["Library Name"] + '.sqlite3' )
 cursor = db.cursor()
 
 def localPath( path ):
@@ -49,7 +48,7 @@ def setErrorByPath( path, value ):
 def notify( message ):
 	if settings["Notifications"] == "yes":
 		#try:
-		Client( settings["pushover token"] ).send_message( "<b>" + settings["Agent Name"] + "</b>:" + message, html=1 )
+		Client( settings["pushover user"] ).send_message( "<b>" + settings["Agent Name"] + "</b>:" + message, html=1 )
 		#except:
 		#	print("Pushover notification failed.")
 	else:
@@ -142,8 +141,12 @@ def createThumbs( videofile, targetDir, ext="" ):
 	try:
 		aspectRatio = 	float(originalMetadata['streams'][0]['display_aspect_ratio'].split(':')[0]) / \
 						float(originalMetadata['streams'][0]['display_aspect_ratio'].split(':')[1])
-	except:
-		aspectRatio = 1.0
+	except KeyError:
+		try:
+			aspectRatio = 	float(originalMetadata['streams'][0]['width']) / \
+							float(originalMetadata['streams'][0]['height'])
+		except KeyError:
+			aspectRatio = 1.0
 	targetHeight = int( originalMetadata['streams'][0]['height'] )
 	targetWidth  = int( aspectRatio * originalMetadata['streams'][0]['height'] )
 	for i in range(0,int(settings["Number of Thumbs"])):
