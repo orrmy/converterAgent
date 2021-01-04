@@ -1,11 +1,11 @@
 #!/usr/bin/python
 
-# converterAgent V0.8.3
-# - FIX: CAdatabaseBuilder didn't work, does now
-# - createThumbs() can now use width and height if display_aspect_ratio is unavailable
+# converterAgent V0.8.4
+# - FIX: now waits for locked database instead of quitting
+
 
 import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
-import traceback, logging
+import traceback, logging, time
 from shlex import quote
 from pushover import init, Client
 
@@ -42,8 +42,14 @@ def dbPath( path ):
 		return path
 
 def setErrorByPath( path, value ):
-    cursor.execute("UPDATE files Set Error=? WHERE Path=?", (value, path))
-    db.commit()
+	while counter <= 5:
+		try:
+			cursor.execute("UPDATE files Set Error=? WHERE Path=?", (value, path))
+			break
+		except sqlite3.OperationalError:
+			notify( 'Database locked. Waiting...' )
+			time.sleep(60)
+	db.commit()
 
 def notify( message ):
 	if settings["Notifications"] == "yes":

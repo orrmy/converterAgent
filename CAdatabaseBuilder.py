@@ -79,10 +79,11 @@ def findFiles(directory, pattern):
 	#counter = 0
 	#print( "\n" + directory ) #debug
 	for root, dirs, files in os.walk(directory):
+		print (files)
 		for basename in files:
 			path = os.path.join(root, basename)
 			countTotal += 1
-			#print (path)
+			print (path)
 			if basename.endswith(pattern) \
 					and not any(string in path for string in settings["Ignore Paths"].split('\n')) \
 					and not fileInDB(path):
