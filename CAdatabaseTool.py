@@ -23,14 +23,14 @@ def generateSearch():
 		return ""
 	result = "WHERE "
 	if args.codec != "":
-		result = result + "Codec = '" + args.codec + " "
+		result = result + "`Codec` = '" + args.codec + " "
 		if not args.uncut:
 			return result
-		return result + "AND Cut=0 "
-	return result + "Cut=0"
+		return result + "AND `Cut`=0 "
+	return result + "`Cut`=0"
 
 def random():
-    dbQuery = "SELECT id, Path FROM files " + generateSearch() + " ORDER BY RANDOM() LIMIT 1;"
+    dbQuery = "SELECT `ID`, `Path` FROM `files` " + generateSearch() + " ORDER BY RANDOM() LIMIT 1;"
     print (dbQuery)
     cursor.execute( dbQuery )
     (key, path) = cursor.fetchone()
@@ -42,8 +42,8 @@ def random():
         print (path)
 
 def setCut(key, value):
-    cursor.execute("UPDATE files SET Cut=? WHERE id=?", (value, key))
-    cursor.execute("SELECT * FROM files WHERE id=?", (key,))
+    cursor.execute("UPDATE `files` SET `Cut`=? WHERE `id`=?", (value, key))
+    cursor.execute("SELECT * FROM `files` WHERE `id`=?", (key,))
     print( cursor.fetchall() )
     db.commit()
 
