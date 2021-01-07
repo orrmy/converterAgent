@@ -27,21 +27,22 @@ filesTableInitSQL = """CREATE TABLE IF NOT EXISTS `files` (
     `Height` INT,
     `Duration` INT,
     `Size` BIGINT,
-    `Found` VARCHAR(25),
-    `Modified` VARCHAR(25),
+    `Found` BIGINT,
+    `Modified` BIGINT,
     `Cut` INT,
     `Checked` INT,
     `Missing` INT,
     `Error` INT,
     `Lock` INT,
     `Done` TEXT,
-    PRIMARY KEY (`ID`)
+    PRIMARY KEY (`ID`),
+    UNIQUE (`ID`)
 );"""
 
 uncutPaths = settings['postprocessing paths'].split('\n')
 
 def fileInsert( Path=None, Filename="", Container="", Codec="", Width=0, \
-                Height=0, Duration=0, Size=0, Found="", Modified="", Cut=0, \
+                Height=0, Duration=0, Size=0, Found=0, Modified=0, Cut=0, \
                 Checked=0,  Missing=0, Error=0, Lock=0, Done=0):
     global countNew, countChanged
     cursor.execute( 'SELECT * FROM files WHERE Path=%s;', (Path,) )
@@ -76,7 +77,7 @@ def safeMetadata( metadata, parameters ):
 def fileInDB(path):
     cursor.execute("SELECT `Size`, `Modified`, `Missing` FROM `files` WHERE `Path`=%s", (path,))
     DBFileData = cursor.fetchone()
-    if DBFileData == (os.path.getsize(path), os.path.getmtime(path), 0):
+    if DBFileData == (int(os.path.getsize(path)), int(os.path.getmtime(path)), 0):
         return True
     return False
 
@@ -85,11 +86,11 @@ def findFiles(directory, pattern):
     #counter = 0
     #print( "\n" + directory ) #debug
     for root, dirs, files in os.walk(directory):
-        print (files)
+        #print (files)
         for basename in files:
             path = os.path.join(root, basename)
             countTotal += 1
-            print (path)
+            #print (path)
             if basename.endswith(pattern) \
                     and not any(string in path for string in settings["Ignore Paths"].split('\n')) \
                     and not fileInDB(path):
@@ -106,8 +107,8 @@ def findFiles(directory, pattern):
                         Height        = safeMetadata(metadata, ("streams", 0, "height") ), \
                         Duration    = safeMetadata(metadata, ("format", "duration") ), \
                         Size        = os.path.getsize(path),\
-                        Found        = str(time.time()),\
-                        Modified    = str(os.path.getmtime(path)),\
+                        Found        = int(time.time()),\
+                        Modified    = int(os.path.getmtime(path)),\
                         Cut=cut, Checked=0,  Missing=0, Error=0, Lock=0, Done=0 )
 
 def findVersions( path ):

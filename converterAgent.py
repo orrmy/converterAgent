@@ -1,7 +1,8 @@
 #!/usr/bin/python
 
-# converterAgent V0.9
-# - turns out MySQL is better for concurrency than SQLite, who knew?
+# converterAgent V0.9b2
+# - does not generate thumbnails anymore if aspect ratio cannot be determined
+# - FIX: convert timestamps to INT to make them match with or without milliseconds
 
 
 import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
@@ -106,7 +107,7 @@ def getFileToConvert():
                 for file in result:
                     print (str(file[3]) + " | " + str(os.path.getmtime(localPath( file[0] ))))
                     localFile = localPath( file[0] )
-                    if file[3] == str(os.path.getmtime(localFile)) and file[4] == os.path.getsize(localFile):
+                    if file[3] == int(os.path.getmtime(localFile)) and file[4] == os.path.getsize(localFile):
                         print (localFile)
                         print ("Settings: " + conversion)
                         conversion = section["conversion"]
@@ -163,8 +164,9 @@ def createThumbs( videofile, targetDir, ext="" ):
         try:
             aspectRatio =     float(originalMetadata['streams'][0]['width']) / \
                             float(originalMetadata['streams'][0]['height'])
-        except KeyError:
-            aspectRatio = 1.0
+        except (KeyError, ZeroDivisionError):
+            print( "Thumb creation skippen, aspect ratio couldn't be determined..." )
+            return
     targetHeight = int( originalMetadata['streams'][0]['height'] )
     targetWidth  = int( aspectRatio * originalMetadata['streams'][0]['height'] )
     for i in range(0,int(settings["Number of Thumbs"])):
@@ -181,13 +183,14 @@ counter = 0
 
 while True:
     dbFile = getFileToConvert()
-    setDataByPath( dbFile, 'Lock', 1 )
-    localFile = localPath( dbFile )
-    originalMetadata = getMetadata( localFile )
 
     if not dbFile:
         notify( '<b>karthago:</b> No more files to convert. <font color="#ff0000">Stopping.</font>' )
         sys.exit(0)
+
+    setDataByPath( dbFile, 'Lock', 1 )
+    localFile = localPath( dbFile )
+    originalMetadata = getMetadata( localFile )
 
     try:
         if settings["Temp Dir"]:
