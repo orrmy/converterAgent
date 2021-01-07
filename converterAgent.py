@@ -98,7 +98,7 @@ def getFileToConvert():
                     search = search + " `Cut`=1 "
             if search == " WHERE ":
                 continue
-            query = "SELECT `Path`, `Codec`, `Container`, `Modified`, `Size` FROM `files` " + search + " AND `Done`='0' `Error`=0 AND `Missing`=0 ORDER BY RAND()"
+            query = "SELECT `Path`, `Codec`, `Container`, `Modified`, `Size` FROM `files` " + search + " AND `Done`='0' AND `Lock`=0 `Error`=0 AND `Missing`=0 ORDER BY RAND()"
             print( query )
             cursor.execute( query )
             result = cursor.fetchall()
