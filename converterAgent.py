@@ -1,8 +1,7 @@
 #!/usr/bin/python
 
-# converterAgent V0.9b2
-# - does not generate thumbnails anymore if aspect ratio cannot be determined
-# - FIX: convert timestamps to INT to make them match with or without milliseconds
+# converterAgent V0.9b3
+# - ignores files with the new fields `Lock` and `Done` != ""
 
 
 import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
@@ -99,7 +98,7 @@ def getFileToConvert():
                     search = search + " `Cut`=1 "
             if search == " WHERE ":
                 continue
-            query = "SELECT `Path`, `Codec`, `Container`, `Modified`, `Size` FROM `files` " + search + " AND `Error`=0 AND `Missing`=0 ORDER BY RAND()"
+            query = "SELECT `Path`, `Codec`, `Container`, `Modified`, `Size` FROM `files` " + search + " AND `Done`='0' `Error`=0 AND `Missing`=0 ORDER BY RAND()"
             print( query )
             cursor.execute( query )
             result = cursor.fetchall()
@@ -139,7 +138,7 @@ def interlaceDetect( filename ):
                                 "10000", "-an", "-f", "rawvideo", "-y",\
                                 "/dev/null", "-i", filename],\
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE )
-    #print( process.communicate() )
+    print( process.communicate() )
     idetSingleResult = process.communicate()[1].splitlines()[-2].split()
     idetMultiResult = process.communicate()[1].splitlines()[-2].split()
     sTFF = int(idetSingleResult[7])
