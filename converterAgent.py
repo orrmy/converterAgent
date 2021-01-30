@@ -1,7 +1,9 @@
 #!/usr/bin/python
 
-# converterAgent V0.9b3.1
-# - ignores files with the new fields `Lock` and `Done` != "" (for real now)
+# converterAgent V0.9
+# -
+# - show conversion setting in notifcations
+# - update database after successful conversion
 
 
 import os, sys, sqlite3, shutil, re, subprocess, json, pickle, random, configparser
@@ -10,17 +12,17 @@ from shlex import quote
 from pushover import init, Client
 
 from CAmetadata import getMetadata
+from CAdatabaseBuilder import safeMetadata
 
 # Global Variables
 originalMetadata = None
-knownFiles         = {}
-doneFiles         = []
 
 allsettings = configparser.ConfigParser( allow_no_value=True )
 allsettings.read("config.ini")
 settings = allsettings["GLOBAL SETTINGS"]
 
 conversion = allsettings["DEFAULT"]["conversion"]
+uncutPaths = settings['postprocessing paths'].split('\n')
 
 if settings["database type"] == "mysql":
     import mysql.connector
@@ -60,6 +62,26 @@ def setDataByPath( path, key, value ):
         except sqlite3.OperationalError:
             notify( 'Database locked. Waiting...' )
             time.sleep(60)
+    db.commit()
+
+def writeAllToDB( Path=None, Filename="", Container="", Codec="", Width=0, \
+                Height=0, Duration=0, Size=0, Found=0, Modified=0, Cut=0, \
+                Checked=0,  Missing=0, Error=0, Lock=0, Done=0):
+    cursor.execute( 'SELECT * FROM files WHERE Path=%s;', (Path,) )
+    result = cursor.fetchall()
+    if len(result)==0:
+        cursor.execute("INSERT INTO `files` (`Path`, `Filename`, `Container`, `Codec`, \
+                        `Width`, `Height`, `Duration`, `Size`, `Found`, `Modified`, `Cut`, \
+                        `Checked`, `Missing`, `Error`, `Lock`, `Done`) \
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", \
+                        (Path, Filename, Container, Codec, Width, \
+                        Height, Duration, Size, Found, Modified, Cut, \
+                        Checked, Missing, Error, Lock, Done) )
+    else:
+        cursor.execute("UPDATE `files` SET `Codec`=%s, \
+                        `Width`=%s, `Height`=%s, `Duration`=%s, `Size`=%s, `Modified`=%s, `Missing`=0 \
+                        WHERE `Path`=%s", \
+                        (Codec, Width, Height, Duration, Size, Modified, Path) )
     db.commit()
 
 def notify( message ):
@@ -124,7 +146,13 @@ def generateCommand(filename, deint, newFilename):
     if deint != "":
         deint = convSettings["deint Option"]
 
-    return "ffmpeg " + convSettings['ffmpeg input options'] + " -i " \
+    if convSettings['engine'] == "Handbrake":
+        return "HandBrakeCLI -v --preset-import-gui -Z '" + \
+            convSettings['preset'] + "' " + convSettings['options'] + " " \
+            + deint + " -i " + quote(filename) + " -o " + \
+            quote(newFilename)
+    else:
+        return "ffmpeg " + convSettings['ffmpeg input options'] + " -i " \
             + quote(filename) + " " + deint + " -map 0 " + \
             convSettings['ffmpeg output options'] + " " + \
             quote(newFilename)
@@ -207,7 +235,8 @@ while True:
             deint = ""
             deintNotification = ""
         
-        notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(localFile) + deintNotification )
+        notify( '<font color="#00ff00">Starting to convert</font> ' + os.path.basename(localFile) + deintNotification + \
+                "\nConversion: " + conversion)
         tempNameForConvertedFile = os.path.splitext( tempFile )[0] + " - conv.mkv"
         newPath = os.path.splitext( localFile )[0] + settings["Suffix for new Files"] + ".mkv"
 
@@ -233,22 +262,28 @@ while True:
             shutil.copyfile( tempFile, settings["Done Originals Dir"] + os.path.basename( tempFile ) )
             if newPath != localFile:
                 os.remove( localFile )
+                cursor.execute( "DELETE FROM `files` WHERE `Path`=%s;", (dbFile[0],) )
             if tempFile != localFile:
                 os.remove( tempFile )
-        # TODO: Update Database after converting a file
-        # try:
-        #     width  = float(originalMetadata['streams'][0]['width'].split(':')[0])
-        #     height = float(originalMetadata['streams'][0]['height'].split(':')[1])
-        # except:
-        #     width  = 0
-        #     height = 0
-        #     knownFiles[ finalPath ] = {    'size': os.path.getsize(finalPath),
-        #                                 'modified': os.path.getmtime(finalPath),
-        #                                 'codec': 'hevc',
-        #                                 'width': width,
-        #                                 'height': height }
-        # doneFiles.append( finalPath )
         
+        if localFile.startswith(tuple(uncutPaths)):
+            cut = 0
+        else:
+            cut = 1
+
+        writeAllToDB( Path      = dbPath( newPath ),\
+                    Filename    = os.path.basename( newPath ), \
+                    Container   = os.path.splitext( newPath )[1], \
+                    Codec       = safeMetadata(newMetadata, ("streams", 0, "codec_name") ), \
+                    Width       = safeMetadata(newMetadata, ("streams", 0, "width") ), \
+                    Height      = safeMetadata(newMetadata, ("streams", 0, "height") ), \
+                    Duration    = safeMetadata(newMetadata, ("format", "duration") ), \
+                    Size        = os.path.getsize(newPath),\
+                    Found       = int(time.time()),\
+                    Modified    = int(os.path.getmtime(newPath)),\
+                    Cut=cut, Checked=0,  Missing=0, Error=0, Lock=0, Done=conversion )
+
+
         setDataByPath( dbFile, 'Lock', 0 )
         setDataByPath( dbFile, 'Done', conversion )
 

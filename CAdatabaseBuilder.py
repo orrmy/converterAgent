@@ -77,7 +77,13 @@ def safeMetadata( metadata, parameters ):
 def fileInDB(path):
     cursor.execute("SELECT `Size`, `Modified`, `Missing` FROM `files` WHERE `Path`=%s", (path,))
     DBFileData = cursor.fetchone()
-    if DBFileData == (int(os.path.getsize(path)), int(os.path.getmtime(path)), 0):
+    try:
+        filesize = int(os.path.getsize(path))
+        modified = int(os.path.getmtime(path))
+    except OSError:
+        print ("File info couldn't be read: " + path )
+        return False
+    if DBFileData == (filesize, modified, 0):
         return True
     return False
 
@@ -91,7 +97,7 @@ def findFiles(directory, pattern):
             path = os.path.join(root, basename)
             countTotal += 1
             #print (path)
-            if basename.endswith(pattern) \
+            if basename.endswith(pattern) and os.path.isfile(path) \
                     and not any(string in path for string in settings["Ignore Paths"].split('\n')) \
                     and not fileInDB(path):
                 metadata = CAmetadata.getMetadata(path)
@@ -131,22 +137,23 @@ def findMissing():
                 countMissing += 1
     db.commit()
 
-if settings["database type"] == 'mysql':
-    try:
-        db = mysql.connector.connect( host= settings["database server"], user= settings["database user"], password= settings["database password"], database= settings["database name"] )
-        print(db)
-    except:
-        print("No db connection...")
-else:
-    db = sqlite3.connect( settings['Library Name'] + '.sqlite3' )
+if __name__ == "__main__":
+    if settings["database type"] == 'mysql':
+        try:
+            db = mysql.connector.connect( host= settings["database server"], user= settings["database user"], password= settings["database password"], database= settings["database name"] )
+            print(db)
+        except:
+            print("No db connection...")
+    else:
+        db = sqlite3.connect( settings['Library Name'] + '.sqlite3' )
 
-cursor = db.cursor()
-cursor.execute( filesTableInitSQL )
-db.commit()
+    cursor = db.cursor(buffered=True)
+    cursor.execute( filesTableInitSQL )
+    db.commit()
 
-for lib in settings['Input Paths'].split('\n'):
-    findFiles(lib, tuple(settings['Container Formats'].split('\n')) )
-    findMissing()
+    for lib in settings['Input Paths'].split('\n'):
+        findFiles(lib, tuple(settings['Container Formats'].split('\n')) )
+        findMissing()
 
-print ( str(countTotal) + " files total, " + str(countNew) + " new, " + str(countChanged) + " changed, " + str(countMissing) + " missing." )
+    print ( str(countTotal) + " files total, " + str(countNew) + " new, " + str(countChanged) + " changed, " + str(countMissing) + " missing." )
 
