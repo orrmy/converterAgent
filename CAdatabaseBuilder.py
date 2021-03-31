@@ -132,10 +132,11 @@ def findMissing():
             if findVersions( path[0] ) > 0:
                 cursor.execute( "DELETE FROM `files` WHERE `Path`=%s;", (path[0],) )
                 countChanged += 1
+                db.commit()
             else:
                 cursor.execute( "UPDATE `files` SET `Missing`=1 WHERE `Path`=%s;", (path[0],) )
                 countMissing += 1
-    db.commit()
+                db.commit()
 
 if __name__ == "__main__":
     if settings["database type"] == 'mysql':
